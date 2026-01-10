@@ -131,7 +131,11 @@ in {
           Type = "oneshot";
           User = "root";
         };
-        wantedBy = ["multi-user.target"];
+        # Don't use wantedBy multi-user.target - that causes deadlock because
+        # the script runs systemctl stop/start during NixOS activation.
+        # Instead, only run when jellarr.service needs it (triggered by timer).
+        requiredBy = ["jellarr.service"];
+        before = ["jellarr.service"];
       };
     })
   ];
