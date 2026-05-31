@@ -116,25 +116,43 @@ in {
               sleep 1
             done
 
+            # Check if key exists and matches current value
+            existing_token=$(sqlite3 "$DB" "SELECT AccessToken FROM ApiKeys WHERE Name='$API_KEY_NAME';")
+            if [ "$existing_token" = "$API_KEY" ]; then
+              echo "API key '$API_KEY_NAME' already exists with correct value, skipping"
+              exit 0
+            fi
+
+            # Key missing or value changed - need to stop Jellyfin to safely update
+            if [ -n "$existing_token" ]; then
+              echo "API key '$API_KEY_NAME' value changed, updating..."
+            else
+              echo "Inserting API key '$API_KEY_NAME' into Jellyfin database..."
+            fi
             systemctl stop ${bootstrapCfg.jellyfinService}
 
-            sleep 10
+            sleep 5
 
             sqlite3 "$DB" <<SQL
             BEGIN IMMEDIATE;
+            DELETE FROM ApiKeys WHERE Name='$API_KEY_NAME';
             INSERT INTO ApiKeys (AccessToken, Name, DateCreated, DateLastActivity)
-            SELECT '$API_KEY', '$API_KEY_NAME', datetime('now'), datetime('now')
-            WHERE NOT EXISTS (SELECT 1 FROM ApiKeys WHERE Name='$API_KEY_NAME');
+            VALUES ('$API_KEY', '$API_KEY_NAME', datetime('now'), datetime('now'));
             COMMIT;
             SQL
 
             systemctl start ${bootstrapCfg.jellyfinService}
+            echo "API key configured, Jellyfin restarted"
           '';
         serviceConfig = {
           Type = "oneshot";
           User = "root";
         };
-        wantedBy = ["multi-user.target"];
+        # Don't use wantedBy multi-user.target - that causes deadlock because
+        # the script runs systemctl stop/start during NixOS activation.
+        # Instead, only run when jellarr.service needs it.
+        requiredBy = ["jellarr.service"];
+        before = ["jellarr.service"];
       };
     })
   ];
